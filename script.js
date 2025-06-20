@@ -93,13 +93,11 @@ const tryClick = async (page, selector) => {
     if (newPage.url().includes("auth/signin")) {
       console.log("Trakt login page detected");
       try {
-        await newPage.waitForSelector('form', { timeout: 30000 });
-        await newPage.keyboard.type(traktEmail, { delay: 100 });
-        await newPage.keyboard.press('Tab');
-        await newPage.keyboard.type(traktPassword, { delay: 100 });
-        await newPage.keyboard.press('Enter');
-        console.log("Trakt credentials submitted");
-        await newPage.waitForNavigation({ waitUntil: 'load', timeout: 30000 });
+        await newPage.evaluate((email, password) => {
+        document.querySelector('#user_login').value = email;
+        document.querySelector('#user_password').value = password;
+        document.querySelector('input[name="commit"]').click();
+        }, traktEmail, traktPassword);
       } catch (err) {
         console.log("Trakt login failed:", err.message);
       }
