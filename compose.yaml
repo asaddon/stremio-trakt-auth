@@ -1,0 +1,36 @@
+name: stremio-trakt-auth
+
+services:
+  stremio-trakt-auth:
+    image: stremio-trakt-auth:latest
+    container_name: stremio-trakt-auth
+    network_mode: bridge
+    restart: unless-stopped
+    tty: true
+    environment:
+    - SLEEP_SECONDS=600
+    - stremioEmail=your_stremio_email
+    - stremioPassword=your_stremio_password
+    - traktEmail=your_trakt_email
+    - traktPassword=your_trakt_password
+    deploy:
+      resources:
+        limits:
+          memory: 3997M
+    cpu_shares: 90
+    labels:
+      icon: https://static-00.iconduck.com/assets.00/trakt-icon-2048x2048-2633ksxg.png
+    devices: []
+    cap_add: []
+    privileged: false
+
+x-casaos:
+  author: markflaisz
+  category: self
+  icon: https://static-00.iconduck.com/assets.00/trakt-icon-2048x2048-2633ksxg.png
+  index: /
+  is_uncontrolled: true
+  scheme: http
+  store_app_id: stremio-trakt-auth
+  title:
+    custom: Stremio Trakt Auth

@@ -1,0 +1,10 @@
+#VScode settings
+.vscode/
+# Dependency directories
+node_modules/
+#Personal compose
+compose_own.yaml
+
+
+
+
