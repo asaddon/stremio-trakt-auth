@@ -2,7 +2,7 @@ name: stremio-trakt-auth
 
 services:
   stremio-trakt-auth:
-    image: stremio-trakt-auth:latest
+    image: markflaisz/stremio-trakt-auth:latest
     container_name: stremio-trakt-auth
     network_mode: bridge
     restart: unless-stopped
