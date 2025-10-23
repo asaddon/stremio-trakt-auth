@@ -1,8 +1,18 @@
+require('dotenv').config();
 const puppeteer = require('puppeteer');
+const fs = require('fs');
 
 const formatTimestamp = () => {
   const now = new Date();
   return now.toISOString().replace("T", " ").substring(0, 19);
+};
+
+const takeScreenshot = async (page, label) => {
+  if (process.env.DEBUG_SCREENSHOTS === "true") {
+    const filename = `debug-${label}-${Date.now()}.png`;
+    await page.screenshot({ path: filename, fullPage: true });
+    console.log(`[${formatTimestamp()}] Saved screenshot: ${filename}`);
+  }
 };
 
 const setupPageInterception = async (page) => {
@@ -18,7 +28,7 @@ const setupPageInterception = async (page) => {
 
 const tryClick = async (page, selector) => {
   try {
-    await page.waitForSelector(selector, { visible: true, timeout: 5000 });
+    await page.waitForSelector(selector, { visible: true, timeout: 4000 });
     await page.click(selector);
     return true;
   } catch {
@@ -37,13 +47,13 @@ const signOutFromStremio = async (page) => {
     const signOutSelector = 'a.sign-out-button';
     const clicked = await tryClick(page, signOutSelector);
     if (clicked) {
-      await page.waitForNavigation({ waitUntil: 'load', timeout: 30000 });
+      await page.waitForNavigation({ waitUntil: 'load', timeout: 10000 }).catch(() => {});
       console.log(`[${formatTimestamp()}] Stremio sign-out successful`);
     } else {
-      console.log(`[${formatTimestamp()}] Stremio sign-out failed: Sign-out button not found`);
+      console.log(`[${formatTimestamp()}] Stremio sign-out failed: button not found`);
     }
   } catch (err) {
-    console.error(`[${formatTimestamp()}] Stremio sign-out failed:`, err.message);
+    console.error(`[${formatTimestamp()}] Sign-out error:`, err.message);
   }
 };
 
@@ -52,10 +62,9 @@ const signOutFromStremio = async (page) => {
   let browser = null;
 
   try {
-    // Validate environment variables
     const { stremioEmail, stremioPassword, traktEmail, traktPassword } = process.env;
     if (!stremioEmail || !stremioPassword || !traktEmail || !traktPassword) {
-      console.error(`[${formatTimestamp()}] Missing required environment variables`);
+      console.error(`[${formatTimestamp()}] Missing environment variables`);
       process.exit(1);
     }
 
@@ -80,6 +89,7 @@ const signOutFromStremio = async (page) => {
     const page = await browser.newPage();
     await setupPageInterception(page);
 
+    // --- Login to Stremio ---
     await page.goto('https://www.stremio.com/login', { waitUntil: 'load' });
     console.log(`[${formatTimestamp()}] Stremio login page loaded`);
 
@@ -94,74 +104,96 @@ const signOutFromStremio = async (page) => {
       await page.waitForSelector("#my-account", { visible: true, timeout: 10000 });
       console.log(`[${formatTimestamp()}] Stremio login successful`);
     } catch {
-      console.log(`[${formatTimestamp()}] Stremio login failed – maybe credentials rejected or session dropped`);
+      console.log(`[${formatTimestamp()}] Stremio login failed`);
       return;
     }
 
-    console.log(`[${formatTimestamp()}] Skipping Trakt status check – forcing reauthentication`);
+    console.log(`[${formatTimestamp()}] Forcing Trakt reauthentication`);
     await tryClick(page, '.integrations-button.trakt-connect-button');
     await new Promise(res => setTimeout(res, 1000));
 
+    // --- Open Trakt Auth Page ---
     const newPage = await browser.newPage();
     await setupPageInterception(newPage);
 
-    await newPage.goto(
+    const traktAuthURL =
       'https://api.trakt.tv/oauth/authorize?client_id=0e861f52c7365efe6da5ea3e2e6641b8d25d87aca3133e8d4f7dc8487368d14b' +
-      '&redirect_uri=https%3A%2F%2Fwww.strem.io%2Ftrakt%2Fauth_cb&response_type=code',
-      { waitUntil: 'load' }
-    );
+      '&redirect_uri=https%3A%2F%2Fwww.strem.io%2Ftrakt%2Fauth_cb&response_type=code';
 
+    await newPage.goto(traktAuthURL, { waitUntil: 'domcontentloaded' });
+
+    // --- Detect if login needed ---
     if (newPage.url().includes("auth/signin")) {
       console.log(`[${formatTimestamp()}] Trakt login page detected`);
+      await takeScreenshot(newPage, 'trakt-login-before');
+
       try {
         await newPage.evaluate((email, password) => {
-          document.querySelector('#user_login').value = email;
-          document.querySelector('#user_password').value = password;
-          document.querySelector('input[name="commit"]').click();
+          const emailField = document.querySelector('#user_login');
+          const passField = document.querySelector('#user_password');
+          const form = document.querySelector('form#new_user button.btn[type="submit"]');
+          if (emailField && passField) {
+            emailField.value = email;
+            passField.value = password;
+            form?.click();
+          }
         }, traktEmail, traktPassword);
+
+        console.log(`[${formatTimestamp()}] Clicked Trakt submit button`);
       } catch (err) {
         console.log(`[${formatTimestamp()}] Trakt login failed:`, err.message);
       }
-    }
 
-    const yesClicked = await tryClick(newPage, 'input[name="commit"]');
-    if (yesClicked) {
-      try {
-        await newPage.waitForNavigation({ waitUntil: 'load', timeout: 30000 });
-      } catch {}
+      // Quick race wait (8s max)
+      await Promise.race([
+        newPage.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
+        new Promise(res => setTimeout(res, 8000))
+      ]);
 
-      const currentUrl = newPage.url();
-      console.log(`[${formatTimestamp()}] Final redirect URL:`, currentUrl);
-
-      if (currentUrl.includes('login-trakt-complete')) {
-        console.log(`[${formatTimestamp()}] Trakt authorization successful`);
-      } else {
-        console.log(`[${formatTimestamp()}] Trakt authorization may have partially failed`);
-      }
-
-      await page.bringToFront();
-      await page.reload({ waitUntil: 'load' });
-      console.log(`[${formatTimestamp()}] Stremio page reloaded after Trakt authorization`);
-
-      // Sign out from Stremio regardless of Trakt authorization outcome
-      await signOutFromStremio(page);
-
-      await newPage.close();
+     // console.log(`[${formatTimestamp()}] Trakt post-login URL: ${newPage.url()}`);
+      await takeScreenshot(newPage, 'trakt-login-after');
     } else {
-      console.log(`[${formatTimestamp()}] Trakt authorization skipped: "Yes" button was not clicked`);
-      // Sign out from Stremio even if Trakt authorization was skipped
-      await page.bringToFront();
-      await page.reload({ waitUntil: 'load' });
-      console.log(`[${formatTimestamp()}] Stremio page reloaded`);
-      await signOutFromStremio(page);
+      console.log(`[${formatTimestamp()}] Trakt login page skipped — session already active`);
     }
+
+    // --- Handle "Allow Access" button or existing authorization ---
+    const yesClicked = await tryClick(
+      newPage,
+      'button[name="commit"], input[name="commit"], button.btn-allow, button:has-text("Yes"), button:has-text("Allow")'
+    );
+
+    if (yesClicked) {
+      console.log(`[${formatTimestamp()}] Clicked Trakt consent button`);
+      await Promise.race([
+        newPage.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
+        new Promise(res => setTimeout(res, 5000))
+      ]);
+    } else {
+      console.log(`[${formatTimestamp()}] No consent screen — likely already authorized`);
+    }
+
+    const currentUrl = newPage.url();
+    console.log(`[${formatTimestamp()}] Final redirect URL: ${currentUrl}`);
+
+    if (currentUrl.includes('login-trakt-complete') || currentUrl.includes('auth_cb')) {
+      console.log(`[${formatTimestamp()}] ✅ Trakt authorization successful / token refreshed`);
+    } else {
+      console.log(`[${formatTimestamp()}] ⚠️ Trakt authorization may have partially failed`);
+    }
+
+    await page.bringToFront();
+    await page.reload({ waitUntil: 'load' });
+    console.log(`[${formatTimestamp()}] Stremio page reloaded after Trakt authorization`);
+
+    await signOutFromStremio(page);
+    await newPage.close();
 
   } catch (err) {
-    console.error(`[${formatTimestamp()}] A critical error occurred:`, err.message, err.stack);
+    console.error(`[${formatTimestamp()}] Critical error:`, err.message, err.stack);
   } finally {
     if (browser) {
       const pages = await browser.pages();
-      await Promise.all(pages.map(page => page.close()));
+      await Promise.all(pages.map(p => p.close().catch(() => {})));
       await browser.close();
     }
     console.log(`--- Script ended at: ${formatTimestamp()} ---`);
