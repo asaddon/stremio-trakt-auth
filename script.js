@@ -144,34 +144,39 @@ const signOutFromStremio = async (page) => {
         console.log(`[${formatTimestamp()}] Trakt login failed:`, err.message);
       }
 
-      // Quick race wait (8s max)
+      // Wait for post-login transition
       await Promise.race([
         newPage.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
         new Promise(res => setTimeout(res, 8000))
       ]);
 
-     // console.log(`[${formatTimestamp()}] Trakt post-login URL: ${newPage.url()}`);
-      await takeScreenshot(newPage, 'trakt-login-after');
-    } else {
-      console.log(`[${formatTimestamp()}] Trakt login page skipped — session already active`);
+    // --- Handle Trakt Consent Screen ---
+    try {
+      const consentYesSelector = 'button.btn[name="authorize"], input[type="submit"][value="Yes"]';
+      const consentNoSelector = 'button.btn[name="deny"], input[type="submit"][value="No"]';
+
+      await new Promise(res => setTimeout(res, 2000)); // let page render fully
+      const hasConsent = await newPage.$(consentYesSelector);
+
+      if (hasConsent) {
+        console.log(`[${formatTimestamp()}] Consent screen detected – clicking "Yes"`);
+        await newPage.click(consentYesSelector);
+        await newPage.waitForNavigation({ waitUntil: 'load', timeout: 15000 });
+        console.log(`[${formatTimestamp()}] Clicked "Yes" on consent screen`);
+      } else {
+        console.log(`[${formatTimestamp()}] No consent screen found (already authorized)`);
+      }
+    } catch (err) {
+      console.log(`[${formatTimestamp()}] Failed to process consent screen:`, err.message);
     }
 
-    // --- Handle "Allow Access" button or existing authorization ---
-    const yesClicked = await tryClick(
-      newPage,
-      'button[name="commit"], input[name="commit"], button.btn-allow, button:has-text("Yes"), button:has-text("Allow")'
-    );
-
-    if (yesClicked) {
-      console.log(`[${formatTimestamp()}] Clicked Trakt consent button`);
-      await Promise.race([
-        newPage.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {}),
-        new Promise(res => setTimeout(res, 5000))
-      ]);
+   // ✅ Now take the screenshot after redirect/consent page loads
+    await takeScreenshot(newPage, 'trakt-login-after');
     } else {
-      console.log(`[${formatTimestamp()}] No consent screen — likely already authorized`);
+    console.log(`[${formatTimestamp()}] Trakt login page skipped — session already active`);
     }
 
+    // --- Final verification ---
     const currentUrl = newPage.url();
     console.log(`[${formatTimestamp()}] Final redirect URL: ${currentUrl}`);
 
