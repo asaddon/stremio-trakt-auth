@@ -9,8 +9,7 @@ services:
     tty: true
     environment:
     - SLEEP_SECONDS=600
-    - stremioEmail=your_stremio_email
-    - stremioPassword=your_stremio_password
+    - stremioTraktUUID=your_stremio_trakt_uuid
     - traktEmail=your_trakt_email
     - traktPassword=your_trakt_password
     deploy:

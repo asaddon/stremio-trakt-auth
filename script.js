@@ -73,14 +73,27 @@ const formatTimestamp = () => new Date().toISOString().replace("T", " ").substri
       console.log(`[${formatTimestamp()}] No consent screen found (already authorized?)`);
     }
 
-    // --- Final check ---
-    const finalUrl = page.url();
-    console.log(`[${formatTimestamp()}] Final redirect URL: ${finalUrl}`);
-    if (finalUrl.includes('login-trakt-complete')) {
-      console.log(`[${formatTimestamp()}] ✅ Trakt authorization complete`);
-    } else {
-      console.log(`[${formatTimestamp()}] ⚠️ Authorization may not have finished properly`);
-    }
+    // Wait for both Trakt and Stremio redirects to settle
+  let finalUrl;
+  for (let i = 0; i < 5; i++) {
+  await new Promise(res => setTimeout(res, 2000)); // 2s intervals
+  finalUrl = page.url();
+  if (finalUrl.includes('login-trakt-complete')) break;
+  if (finalUrl.includes('auth_cb?code=')) {
+    // give Stremio a few seconds to exchange code -> token -> complete redirect
+    await new Promise(res => setTimeout(res, 5000));
+  }
+  }
+
+  console.log(`[${formatTimestamp()}] Final redirect URL: ${finalUrl}`);
+  if (finalUrl.includes('login-trakt-complete')) {
+  console.log(`[${formatTimestamp()}] ✅ Trakt authorization complete`);
+  } else if (finalUrl.includes('auth_cb?code=')) {
+  console.log(`[${formatTimestamp()}] ⚠️ Authorization stopped at auth_cb, likely finished server-side`);
+  } else {
+  console.log(`[${formatTimestamp()}] ⚠️ Unknown redirect endpoint`);
+  }
+
 
   } catch (err) {
     console.error(`[${formatTimestamp()}] ERROR: ${err.message}`);

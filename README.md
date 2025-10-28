@@ -1,7 +1,7 @@
 # Stremio Trakt Auto Auth
 
 Automatic re-authorization between Stremio and Trakt in a headless environment using Puppeteer.  
-This script logs into your Stremio and Trakt accounts and re-establishes the Trakt.tv connection if the authentication expires or disconnects.
+This script uses your Trakt credentials and Stremio Trakt UUID to re-establish the Trakt.tv connection if the authentication expires or disconnects.
 
 ---
 
@@ -42,8 +42,7 @@ docker run -d \
   --network bridge \
   --restart unless-stopped \
   -e SLEEP_SECONDS=600 \
-  -e stremioEmail=your_stremio_email \
-  -e stremioPassword=your_stremio_password \
+  -e stremioTraktUUID=your_stremio_trakt_uuid \
   -e traktEmail=your_trakt_email \
   -e traktPassword=your_trakt_password \
   markflaisz/stremio-trakt-auth:latest
@@ -53,13 +52,22 @@ docker run -d \
 
 ## 🔐 Environment Variables
 
-| Variable          | Description                              |
-|-------------------|------------------------------------------|
-| `stremioEmail`    | Your Stremio account email address       |
-| `stremioPassword` | Your Stremio account password            |
-| `traktEmail`      | Your Trakt.tv account email address      |
-| `traktPassword`   | Your Trakt.tv account password           |
-| `SLEEP_SECONDS`   | Interval between each re-auth attempt (default: 600 seconds = 10 minutes) |
+| Variable            | Description                              |
+|---------------------|------------------------------------------|
+| `stremioTraktUUID`  | Your Stremio Trakt UUID string (found in Stremio Addons Page) |
+| `traktEmail`        | Your Trakt.tv account email address      |
+| `traktPassword`     | Your Trakt.tv account password           |
+| `SLEEP_SECONDS`     | Interval between each re-auth attempt (default: 600 seconds = 10 minutes) |
+
+### How to find your Stremio Trakt UUID
+
+1. Login to Stremio (preferably on [Stremio Web](https://app.strem.io))
+2. Go to the **Addons** page
+3. Look for the **"Trakt Integration"** addon
+4. Click on the **"Share Addon"** button
+5. Copy the complete addon URL (it will look like: `https://www.strem.io/trakt/addon/0123456789abcdef01234567/manifest.json`)
+6. Extract the string between `/addon/` and `/manifest.json` (in the example above: `0123456789abcdef01234567`)
+7. Use this UUID string as the `stremioTraktUUID` environment variable
 
 ---
 
