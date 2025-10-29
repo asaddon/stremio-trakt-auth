@@ -73,26 +73,42 @@ const formatTimestamp = () => new Date().toISOString().replace("T", " ").substri
       console.log(`[${formatTimestamp()}] No consent screen found (already authorized?)`);
     }
 
-    // Wait for both Trakt and Stremio redirects to settle
-  let finalUrl;
-  for (let i = 0; i < 5; i++) {
-  await new Promise(res => setTimeout(res, 2000)); // 2s intervals
-  finalUrl = page.url();
-  if (finalUrl.includes('login-trakt-complete')) break;
-  if (finalUrl.includes('auth_cb?code=')) {
-    // give Stremio a few seconds to exchange code -> token -> complete redirect
-    await new Promise(res => setTimeout(res, 5000));
-  }
-  }
+    // Wait for Stremio's final redirect, be tolerant to slower exchanges
+    let finalUrl;
+    const loginCompleteRegex = /login-trakt-complete/;
+    const authCbRegex = /auth_cb\?code=/;
 
-  console.log(`[${formatTimestamp()}] Final redirect URL: ${finalUrl}`);
-  if (finalUrl.includes('login-trakt-complete')) {
-  console.log(`[${formatTimestamp()}] ✅ Trakt authorization complete`);
-  } else if (finalUrl.includes('auth_cb?code=')) {
-  console.log(`[${formatTimestamp()}] ⚠️ Authorization stopped at auth_cb, likely finished server-side`);
-  } else {
-  console.log(`[${formatTimestamp()}] ⚠️ Unknown redirect endpoint`);
-  }
+    // Primary wait: any of the expected URLs using waitForFunction
+    await page.waitForFunction(() => {
+      const url = window.location.href;
+      return /login-trakt-complete/.test(url) || /auth_cb\?code=/.test(url);
+    }, { timeout: 30000 }).catch(() => {});
+
+    // If we landed on auth_cb, give Stremio extra time to exchange code -> token
+    finalUrl = page.url();
+    if (authCbRegex.test(finalUrl)) {
+      console.log(`[${formatTimestamp()}] Observed auth_cb, waiting for Stremio exchange...`);
+      // Wait for a follow-up navigation to login-trakt-complete
+      await page.waitForFunction(() => {
+        return /login-trakt-complete/.test(window.location.href);
+      }, { timeout: 20000 }).catch(() => {});
+    }
+
+    // Final sampling window to catch late client-side redirects
+    for (let i = 0; i < 6; i++) {
+      finalUrl = page.url();
+      if (loginCompleteRegex.test(finalUrl)) break;
+      await new Promise(res => setTimeout(res, 2000));
+    }
+
+    console.log(`[${formatTimestamp()}] Final redirect URL: ${finalUrl}`);
+    if (loginCompleteRegex.test(finalUrl)) {
+      console.log(`[${formatTimestamp()}] ✅ Trakt authorization complete`);
+    } else if (authCbRegex.test(finalUrl)) {
+      console.log(`[${formatTimestamp()}] ⚠️ Authorization stopped at auth_cb, likely finished server-side`);
+    } else {
+      console.log(`[${formatTimestamp()}] ⚠️ Unknown redirect endpoint`);
+    }
 
 
   } catch (err) {
